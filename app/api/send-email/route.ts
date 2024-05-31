@@ -41,18 +41,24 @@ export async function POST(req: NextRequest) {
       console.log("Sending email to:", email);
       const result = await ses.sendEmail(params).promise();
       console.log("Email sent successfully:", result);
+      return NextResponse.json(
+        { message: "Email sent successfully" },
+        { status: 200 }
+      );
     } catch (emailError) {
       console.error("Error sending email:", emailError);
+      return NextResponse.json(
+        {
+          message: "Failed to send email",
+          error: (emailError as Error).message,
+        },
+        { status: 500 }
+      );
     }
-
-    return NextResponse.json(
-      { message: "Email sent successfully" },
-      { status: 200 }
-    );
   } catch (error) {
     console.error("Error processing request:", error);
     return NextResponse.json(
-      { message: "Failed to process request", error: error.message },
+      { message: "Failed to process request", error: (error as Error).message },
       { status: 500 }
     );
   }
