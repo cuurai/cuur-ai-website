@@ -1,1 +1,1 @@
-# cuur-ai-website
+cuur.fi
