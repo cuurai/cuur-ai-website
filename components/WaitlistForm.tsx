@@ -43,7 +43,7 @@ const WaitlistForm = () => {
     }
 
     try {
-      await addDoc(collection(firestore, "waitlist"), {
+      await addDoc(collection(firestore, "cuur-waitlist"), {
         email: email,
         timestamp: serverTimestamp(),
       });
