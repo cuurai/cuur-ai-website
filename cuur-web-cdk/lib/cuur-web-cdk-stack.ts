@@ -4,42 +4,38 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
-import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
-import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as path from 'path';
 
 export class CuurWebCdkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Reference existing S3 bucket
-    const siteBucket = s3.Bucket.fromBucketName(this, 'ExistingSiteBucket', 'cuur.ai');
+    // Use existing S3 bucket for static site hosting
+    const siteBucket = s3.Bucket.fromBucketName(this, 'SiteBucket', 'cuur.ai');
 
-    // CloudFront distribution
-    const distribution = new cloudfront.Distribution(this, 'SiteDistribution', {
-      defaultBehavior: {
-        origin: new origins.S3Origin(siteBucket),
-        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-      },
-      defaultRootObject: 'index.html',
+    // Use existing CloudFront distribution
+    const distribution = cloudfront.Distribution.fromDistributionAttributes(this, 'SiteDistribution', {
+      distributionId: 'E3NG0ICI7CEQUN', 
+      domainName: 'd3fa5ekggobzys.cloudfront.net', 
     });
 
-    // Deploy static site to S3
-    new s3deploy.BucketDeployment(this, 'DeployWithInvalidation', {
+    // Deploy static site to S3 and invalidate CloudFront cache
+    new s3deploy.BucketDeployment(this, 'DeployWebsite', {
       sources: [s3deploy.Source.asset('../out')],
       destinationBucket: siteBucket,
       distribution,
-      distributionPaths: ['/*'],
+      distributionPaths: ['/*'], // Ensure CloudFront invalidation is triggered
     });
 
-    // Lambda function for sending emails
+    // Lambda function to handle email sending
     const sendEmailLambda = new lambda.Function(this, 'SendEmailFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, 'lambda')),
       environment: {
-        SES_EMAIL_SOURCE: 'your-verified-email@example.com', // Replace with your verified SES email address
+        SES_EMAIL: 'info@cuur.ai', // Replace with your verified SES email address
       },
     });
 
@@ -49,21 +45,27 @@ export class CuurWebCdkStack extends cdk.Stack {
       resources: ['*'],
     }));
 
-    // API Gateway for Lambda function
+    // API Gateway
     const api = new apigateway.RestApi(this, 'SendEmailApi', {
       restApiName: 'Send Email Service',
       description: 'This service sends an email.',
+      defaultMethodOptions: {
+        authorizationType: apigateway.AuthorizationType.IAM,
+      },
     });
 
     const sendEmailIntegration = new apigateway.LambdaIntegration(sendEmailLambda, {
       requestTemplates: { 'application/json': '{ "statusCode": "200" }' }
     });
 
-    api.root.addMethod('POST', sendEmailIntegration); // POST /send-email
+    api.root.addResource('send-email').addMethod('POST', sendEmailIntegration);
 
-    // Outputs
-    new cdk.CfnOutput(this, 'BucketURL', { value: siteBucket.bucketWebsiteUrl });
-    new cdk.CfnOutput(this, 'CloudFrontURL', { value: distribution.distributionDomainName });
-    new cdk.CfnOutput(this, 'ApiEndpoint', { value: api.url });
+    // Add IAM permissions for the Lambda function to invoke the API Gateway endpoint
+    sendEmailLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['execute-api:Invoke'],
+      resources: [
+        `arn:aws:execute-api:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:${api.restApiId}/*/*/*`
+      ],
+    }));
   }
 }
